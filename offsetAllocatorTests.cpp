@@ -1,20 +1,12 @@
+#define CATCH_CONFIG_RUNNER
 #include <catch2/catch_all.hpp>
 #include <catch2/catch_test_macros.hpp>
-#include "gfxTestFixture.hpp"
 
-#include "offsetAllocator.hpp"
+#define OFFSET_ALLOCATOR_IMPLEMENT
+#include "offsetAllocator.h"
 
-using namespace f;
-
-namespace OffsetAllocator
-{
-    namespace SmallFloat
-    {
-        extern uint32 uintToFloatRoundUp(uint32 size);
-        extern uint32 uintToFloatRoundDown(uint32 size);
-    extern uint32 floatToUint(uint32 floatValue);
-    }
-}
+static constexpr uint32_t MAX_SIZE = 1024 * 1024 * 256;
+static constexpr uint32_t MAX_ALLOCS = 128 * 1024;
 
 namespace offsetAllocatorTests
 {
@@ -25,11 +17,11 @@ namespace offsetAllocatorTests
             // Denorms, exp=1 and exp=2 + mantissa = 0 are all precise.
             // NOTE: Assuming 8 value (3 bit) mantissa.
             // If this test fails, please change this assumption!
-            uint32 preciseNumberCount = 17;
-            for (uint32 i = 0; i < preciseNumberCount; i++)
+            uint32_t preciseNumberCount = 17;
+            for (uint32_t i = 0; i < preciseNumberCount; i++)
             {
-                uint32 roundUp = OffsetAllocator::SmallFloat::uintToFloatRoundUp(i);
-                uint32 roundDown = OffsetAllocator::SmallFloat::uintToFloatRoundDown(i);
+                uint32_t roundUp = OffsetAllocator_UintToFloatRoundUp(i);
+                uint32_t roundDown = OffsetAllocator_UintToFloatRoundDown(i);
                 REQUIRE(i == roundUp);
                 REQUIRE(i == roundDown);
             }
@@ -37,9 +29,9 @@ namespace offsetAllocatorTests
             // Test some random picked numbers
             struct NumberFloatUpDown
             {
-                uint32 number;
-                uint32 up;
-                uint32 down;
+                uint32_t number;
+                uint32_t up;
+                uint32_t down;
             };
             
             NumberFloatUpDown testData[] = {
@@ -51,11 +43,11 @@ namespace offsetAllocatorTests
                 {.number = 1048575, .up = 144, .down = 143},
             };
             
-            for (uint32 i = 0; i < sizeof(testData) / sizeof(NumberFloatUpDown); i++)
+            for (uint32_t i = 0; i < sizeof(testData) / sizeof(NumberFloatUpDown); i++)
             {
                 NumberFloatUpDown v = testData[i];
-                uint32 roundUp = OffsetAllocator::SmallFloat::uintToFloatRoundUp(v.number);
-                uint32 roundDown = OffsetAllocator::SmallFloat::uintToFloatRoundDown(v.number);
+                uint32_t roundUp = OffsetAllocator_UintToFloatRoundUp(v.number);
+                uint32_t roundDown = OffsetAllocator_UintToFloatRoundDown(v.number);
                 REQUIRE(roundUp == v.up);
                 REQUIRE(roundDown == v.down);
             }
@@ -66,20 +58,20 @@ namespace offsetAllocatorTests
             // Denorms, exp=1 and exp=2 + mantissa = 0 are all precise.
             // NOTE: Assuming 8 value (3 bit) mantissa.
             // If this test fails, please change this assumption!
-            uint32 preciseNumberCount = 17;
-            for (uint32 i = 0; i < preciseNumberCount; i++)
+            uint32_t preciseNumberCount = 17;
+            for (uint32_t i = 0; i < preciseNumberCount; i++)
             {
-                uint32 v = OffsetAllocator::SmallFloat::floatToUint(i);
+                uint32_t v = OffsetAllocator_FloatToUint(i);
                 REQUIRE(i == v);
             }
             
             // Test that float->uint->float conversion is precise for all numbers
             // NOTE: Test values < 240. 240->4G = overflows 32 bit integer
-            for (uint32 i = 0; i < 240; i++)
+            for (uint32_t i = 0; i < 240; i++)
             {
-                uint32 v = OffsetAllocator::SmallFloat::floatToUint(i);
-                uint32 roundUp = OffsetAllocator::SmallFloat::uintToFloatRoundUp(v);
-                uint32 roundDown = OffsetAllocator::SmallFloat::uintToFloatRoundDown(v);
+                uint32_t v = OffsetAllocator_FloatToUint(i);
+                uint32_t roundUp = OffsetAllocator_UintToFloatRoundUp(v);
+                uint32_t roundDown = OffsetAllocator_UintToFloatRoundDown(v);
                 REQUIRE(i == roundUp);
                 REQUIRE(i == roundDown);
                 //if ((i%8) == 0) printf("\n");
@@ -90,171 +82,205 @@ namespace offsetAllocatorTests
 
     TEST_CASE("basic", "[offsetAllocator]")
     {
-        OffsetAllocator::Allocator allocator(1024 * 1024 * 256);
-        OffsetAllocator::Allocation a = allocator.allocate(1337);
-        uint32 offset = a.offset;
-        REQUIRE(offset == 0);
-        allocator.free(a);
+        size_t bufferSize = OffsetAllocator_GetRequiredBytes(MAX_ALLOCS);
+        void* buffer = malloc(bufferSize);
+        OffsetAllocator* allocator = OffsetAllocator_Create(MAX_SIZE, MAX_ALLOCS, buffer, bufferSize);
+        OffsetAllocatorAllocation a;
+        OffsetAllocator_Allocate(allocator, 1337, &a);
+        REQUIRE(a.offset == 0);
+        OffsetAllocator_Free(allocator, &a);
+        free(buffer);
     }
 
     TEST_CASE("allocate", "[offsetAllocator]")
     {
-        OffsetAllocator::Allocator allocator(1024 * 1024 * 256);
+        size_t bufferSize = OffsetAllocator_GetRequiredBytes(MAX_ALLOCS);
+        void* buffer = malloc(bufferSize);
+        OffsetAllocator* allocator = OffsetAllocator_Create(MAX_SIZE, MAX_ALLOCS, buffer, bufferSize);
 
         SECTION("simple")
         {
             // Free merges neighbor empty nodes. Next allocation should also have offset = 0
-            OffsetAllocator::Allocation a = allocator.allocate(0);
+            OffsetAllocatorAllocation a;
+            OffsetAllocator_Allocate(allocator, 0, &a);
             REQUIRE(a.offset == 0);
             
-            OffsetAllocator::Allocation b = allocator.allocate(1);
+            OffsetAllocatorAllocation b;
+            OffsetAllocator_Allocate(allocator, 1, &b);
             REQUIRE(b.offset == 0);
 
-            OffsetAllocator::Allocation c = allocator.allocate(123);
+            OffsetAllocatorAllocation c;
+            OffsetAllocator_Allocate(allocator, 123, &c);
             REQUIRE(c.offset == 1);
 
-            OffsetAllocator::Allocation d = allocator.allocate(1234);
+            OffsetAllocatorAllocation d;
+            OffsetAllocator_Allocate(allocator, 1234, &d);
             REQUIRE(d.offset == 124);
 
-            allocator.free(a);
-            allocator.free(b);
-            allocator.free(c);
-            allocator.free(d);
+            OffsetAllocator_Free(allocator, &a);
+            OffsetAllocator_Free(allocator, &b);
+            OffsetAllocator_Free(allocator, &c);
+            OffsetAllocator_Free(allocator, &d);
             
             // End: Validate that allocator has no fragmentation left. Should be 100% clean.
-            OffsetAllocator::Allocation validateAll = allocator.allocate(1024 * 1024 * 256);
+            OffsetAllocatorAllocation validateAll;
+            OffsetAllocator_Allocate(allocator, MAX_SIZE, &validateAll);
             REQUIRE(validateAll.offset == 0);
-            allocator.free(validateAll);
+            OffsetAllocator_Free(allocator, &validateAll);
         }
 
         SECTION("merge trivial")
         {
             // Free merges neighbor empty nodes. Next allocation should also have offset = 0
-            OffsetAllocator::Allocation a = allocator.allocate(1337);
+            OffsetAllocatorAllocation a;
+            OffsetAllocator_Allocate(allocator, 1337, &a);
             REQUIRE(a.offset == 0);
-            allocator.free(a);
+            OffsetAllocator_Free(allocator, &a);
             
-            OffsetAllocator::Allocation b = allocator.allocate(1337);
+            OffsetAllocatorAllocation b;
+            OffsetAllocator_Allocate(allocator, 1337, &b);
             REQUIRE(b.offset == 0);
-            allocator.free(b);
+            OffsetAllocator_Free(allocator, &b);
             
             // End: Validate that allocator has no fragmentation left. Should be 100% clean.
-            OffsetAllocator::Allocation validateAll = allocator.allocate(1024 * 1024 * 256);
+            OffsetAllocatorAllocation validateAll;
+            OffsetAllocator_Allocate(allocator, MAX_SIZE, &validateAll);
             REQUIRE(validateAll.offset == 0);
-            allocator.free(validateAll);
+            OffsetAllocator_Free(allocator, &validateAll);
         }
         
         SECTION("reuse trivial")
         {
             // Allocator should reuse node freed by A since the allocation C fits in the same bin (using pow2 size to be sure)
-            OffsetAllocator::Allocation a = allocator.allocate(1024);
+            OffsetAllocatorAllocation a;
+            OffsetAllocator_Allocate(allocator, 1024, &a);
             REQUIRE(a.offset == 0);
 
-            OffsetAllocator::Allocation b = allocator.allocate(3456);
+            OffsetAllocatorAllocation b;
+            OffsetAllocator_Allocate(allocator, 3456, &b);
             REQUIRE(b.offset == 1024);
 
-            allocator.free(a);
+            OffsetAllocator_Free(allocator, &a);
             
-            OffsetAllocator::Allocation c = allocator.allocate(1024);
+            OffsetAllocatorAllocation c;
+            OffsetAllocator_Allocate(allocator, 1024, &c);
             REQUIRE(c.offset == 0);
 
-            allocator.free(c);
-            allocator.free(b);
+            OffsetAllocator_Free(allocator, &c);
+            OffsetAllocator_Free(allocator, &b);
             
             // End: Validate that allocator has no fragmentation left. Should be 100% clean.
-            OffsetAllocator::Allocation validateAll = allocator.allocate(1024 * 1024 * 256);
+            OffsetAllocatorAllocation validateAll;
+            OffsetAllocator_Allocate(allocator, MAX_SIZE, &validateAll);
             REQUIRE(validateAll.offset == 0);
-            allocator.free(validateAll);
+            OffsetAllocator_Free(allocator, &validateAll);
         }
 
         SECTION("reuse complex")
         {
             // Allocator should not reuse node freed by A since the allocation C doesn't fits in the same bin
             // However node D and E fit there and should reuse node from A
-            OffsetAllocator::Allocation a = allocator.allocate(1024);
+            OffsetAllocatorAllocation a;
+            OffsetAllocator_Allocate(allocator, 1024, &a);
             REQUIRE(a.offset == 0);
 
-            OffsetAllocator::Allocation b = allocator.allocate(3456);
+            OffsetAllocatorAllocation b;
+            OffsetAllocator_Allocate(allocator, 3456, &b);
             REQUIRE(b.offset == 1024);
 
-            allocator.free(a);
+            OffsetAllocator_Free(allocator, &a);
             
-            OffsetAllocator::Allocation c = allocator.allocate(2345);
+            OffsetAllocatorAllocation c;
+            OffsetAllocator_Allocate(allocator, 2345, &c);
             REQUIRE(c.offset == 1024 + 3456);
 
-            OffsetAllocator::Allocation d = allocator.allocate(456);
+            OffsetAllocatorAllocation d;
+            OffsetAllocator_Allocate(allocator, 456, &d);
             REQUIRE(d.offset == 0);
 
-            OffsetAllocator::Allocation e = allocator.allocate(512);
+            OffsetAllocatorAllocation e;
+            OffsetAllocator_Allocate(allocator, 512, &e);
             REQUIRE(e.offset == 456);
 
-            OffsetAllocator::StorageReport report = allocator.storageReport();
+            OffsetAllocatorStorageReport report;
+            OffsetAllocator_GetStorageReport(allocator, &report);
             REQUIRE(report.totalFreeSpace == 1024 * 1024 * 256 - 3456 - 2345 - 456 - 512);
             REQUIRE(report.largestFreeRegion != report.totalFreeSpace);
 
-            allocator.free(c);
-            allocator.free(d);
-            allocator.free(b);
-            allocator.free(e);
+            OffsetAllocator_Free(allocator, &c);
+            OffsetAllocator_Free(allocator, &d);
+            OffsetAllocator_Free(allocator, &b);
+            OffsetAllocator_Free(allocator, &e);
             
             // End: Validate that allocator has no fragmentation left. Should be 100% clean.
-            OffsetAllocator::Allocation validateAll = allocator.allocate(1024 * 1024 * 256);
+            OffsetAllocatorAllocation validateAll;
+            OffsetAllocator_Allocate(allocator, MAX_SIZE, &validateAll);
             REQUIRE(validateAll.offset == 0);
-            allocator.free(validateAll);
+            OffsetAllocator_Free(allocator, &validateAll);
         }
         
         SECTION("zero fragmentation")
         {
             // Allocate 256x 1MB. Should fit. Then free four random slots and reallocate four slots.
             // Plus free four contiguous slots an allocate 4x larger slot. All must be zero fragmentation!
-            OffsetAllocator::Allocation allocations[256];
-            for (uint i = 0; i < 256; i++)
+            OffsetAllocatorAllocation allocations[256];
+            for (uint32_t i = 0; i < 256; i++)
             {
-                allocations[i] = allocator.allocate(1024 * 1024);
+                OffsetAllocator_Allocate(allocator, 1024 * 1024, &allocations[i]);
                 REQUIRE(allocations[i].offset == i * 1024 * 1024);
             }
 
-            OffsetAllocator::StorageReport report = allocator.storageReport();
+            OffsetAllocatorStorageReport report;
+            OffsetAllocator_GetStorageReport(allocator, &report);
             REQUIRE(report.totalFreeSpace == 0);
             REQUIRE(report.largestFreeRegion == 0);
 
             // Free four random slots
-            allocator.free(allocations[243]);
-            allocator.free(allocations[5]);
-            allocator.free(allocations[123]);
-            allocator.free(allocations[95]);
+            OffsetAllocator_Free(allocator, &allocations[243]);
+            OffsetAllocator_Free(allocator, &allocations[5]);
+            OffsetAllocator_Free(allocator, &allocations[123]);
+            OffsetAllocator_Free(allocator, &allocations[95]);
 
             // Free four contiguous slot (allocator must merge)
-            allocator.free(allocations[151]);
-            allocator.free(allocations[152]);
-            allocator.free(allocations[153]);
-            allocator.free(allocations[154]);
+            OffsetAllocator_Free(allocator, &allocations[151]);
+            OffsetAllocator_Free(allocator, &allocations[152]);
+            OffsetAllocator_Free(allocator, &allocations[153]);
+            OffsetAllocator_Free(allocator, &allocations[154]);
 
-            allocations[243] = allocator.allocate(1024 * 1024);
-            allocations[5] = allocator.allocate(1024 * 1024);
-            allocations[123] = allocator.allocate(1024 * 1024);
-            allocations[95] = allocator.allocate(1024 * 1024);
-            allocations[151] = allocator.allocate(1024 * 1024 * 4); // 4x larger
-            REQUIRE(allocations[243].offset != OffsetAllocator::Allocation::NO_SPACE);
-            REQUIRE(allocations[5].offset != OffsetAllocator::Allocation::NO_SPACE);
-            REQUIRE(allocations[123].offset != OffsetAllocator::Allocation::NO_SPACE);
-            REQUIRE(allocations[95].offset != OffsetAllocator::Allocation::NO_SPACE);
-            REQUIRE(allocations[151].offset != OffsetAllocator::Allocation::NO_SPACE);
+            OffsetAllocator_Allocate(allocator, 1024 * 1024, &allocations[243]);
+            OffsetAllocator_Allocate(allocator, 1024 * 1024, &allocations[5]);
+            OffsetAllocator_Allocate(allocator, 1024 * 1024, &allocations[123]);
+            OffsetAllocator_Allocate(allocator, 1024 * 1024, &allocations[95]);
+            OffsetAllocator_Allocate(allocator, 1024 * 1024 * 4, &allocations[151]); // 4x larger
+            REQUIRE(allocations[243].offset != OFFSET_ALLOCATOR_NO_SPACE);
+            REQUIRE(allocations[5].offset != OFFSET_ALLOCATOR_NO_SPACE);
+            REQUIRE(allocations[123].offset != OFFSET_ALLOCATOR_NO_SPACE);
+            REQUIRE(allocations[95].offset != OFFSET_ALLOCATOR_NO_SPACE);
+            REQUIRE(allocations[151].offset != OFFSET_ALLOCATOR_NO_SPACE);
 
-            for (uint i = 0; i < 256; i++)
+            for (uint32_t i = 0; i < 256; i++)
             {
                 if (i < 152 || i > 154)
-                    allocator.free(allocations[i]);
+                    OffsetAllocator_Free(allocator, &allocations[i]);
             }
             
-            OffsetAllocator::StorageReport report2 = allocator.storageReport();
+            OffsetAllocatorStorageReport report2;
+            OffsetAllocator_GetStorageReport(allocator, &report2);
             REQUIRE(report2.totalFreeSpace == 1024 * 1024 * 256);
             REQUIRE(report2.largestFreeRegion == 1024 * 1024 * 256);
 
             // End: Validate that allocator has no fragmentation left. Should be 100% clean.
-            OffsetAllocator::Allocation validateAll = allocator.allocate(1024 * 1024 * 256);
+            OffsetAllocatorAllocation validateAll;
+            OffsetAllocator_Allocate(allocator, MAX_SIZE, &validateAll);
             REQUIRE(validateAll.offset == 0);
-            allocator.free(validateAll);
+            OffsetAllocator_Free(allocator, &validateAll);
         }
+
+        free(buffer);
     }
+}
+
+int main(int argc, char* argv[]) 
+{
+    return Catch::Session().run(argc, argv);
 }

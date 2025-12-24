@@ -1,7 +1,7 @@
 # OffsetAllocator
 Fast hard realtime O(1) offset allocator with minimal fragmentation. 
 
-Uses 256 bins with 8 bit floating point distribution (3 bit mantissa + 5 bit exponent) and a two level bitfield to find the next available bin using 2x LZCNT instructions to make all operations O(1). Bin sizes following the floating point distribution ensures hard bounds for memory overhead percentage regarless of size class. Pow2 bins would waste up to +100% memory (+50% on average). Our float bins waste up to +12.5% (+6.25% on average).
+Uses 256 bins with 8 bit floating point distribution (3 bit mantissa + 5 bit exponent) and a two level bitfield to find the next available bin using 2x LZCNT instructions to make all operations O(1). Bin sizes following the floating point distribution ensures hard bounds for memory overhead percentage regardless of size class. Pow2 bins would waste up to +100% memory (+50% on average). Our float bins waste up to +12.5% (+6.25% on average).
 
 The allocation metadata is stored in a separate data structure, making this allocator suitable for sub-allocating any resources, such as GPU heaps, buffers and arrays. Returns an offset to the first element of the allocated contiguous range.
 
@@ -44,22 +44,22 @@ CMakeLists.txt exists for cmake folder include. Alternatively, just copy the Off
 
 ## How to use
 
-```
-#include "offsetAllocator.hpp"
-using namespace OffsetAllocator;
+```c
+#define OFFSET_ALLOCATOR_IMPLEMENT
+#include "OffsetAllocator.h"
 
-Allocator allocator(12345);                 // Allocator with 12345 contiguous elements in total
+#define MAX_TOTAL_ALLOCATION_SIZE 1024*1024*1024        // Allocator can allocate up to maximum 1GB of space
+size_t neededSize = OffsetAllocator_GetRequiredBytes(128 * 1024);   // 128k = Maximum number of allocation items
+void* buffer = malloc(neededSize);
+OffsetAllocator* allocator = OffsetAllocator_Create(MAX_TOTAL_ALLOCATION_SIZE, 128*1024, buffer, neededSize);
 
-Allocation a = allocator.allocate(1337);    // Allocate a 1337 element contiguous range
-uint32 offset_a = a.offset;                 // Provides offset to the first element of the range
-do_something(offset_a);
+OffsetAllocatorAllocation a;
+OffsetAllocator_Allocate(allocator, 4096, &a);
+printf("Allocation offset: %u", a.offset);
+OffsetAllocator_Free(allocator, &a);        // We are done with the allocation
 
-Allocation b = allocator.allocate(123);     // Allocate a 123 element contiguous range
-uint32 offset_b = b.offset;                 // Provides offset to the first element of the range
-do_something(offset_b);
-
-allocator.free(a);                          // Free allocation a
-allocator.free(b);                          // Free allocation b
+OffsetAllocator_Destroy(allocator);
+free(buffer);   // We are done with the allocator
 ```
 
 ## References
@@ -69,7 +69,7 @@ This allocator is similar to the two-level segregated fit (TLSF) algorithm.
 https://www.researchgate.net/profile/Alfons-Crespo/publication/234785757_A_comparison_of_memory_allocators_for_real-time_applications/links/5421d8550cf2a39f4af765f4/A-comparison-of-memory-allocators-for-real-time-applications.pdf
 
 ## Disclaimer
-Early one weekend prototype. Unit tests are green, but coverage is still not 100%. Use at your own risk!
+This is just a C port of the original C++ version by Sebastian Aaltonen: https://github.com/sebbbi/OffsetAllocator
 
 ## License
 MIT license (see file: LICENSE)

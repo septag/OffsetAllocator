@@ -1,6 +1,26 @@
-// (C) Sebastian Aaltonen 2023
+// Fast hard realtime O(1) offset allocator with minimal fragmentation.
+// By Sebastian Aaltonen 2023: https://github.com/sebbbi/OffsetAllocator
+// Single header C port by Sepehr Taghdisian (septag@github)
 // MIT License (see file: LICENSE)
-
+//
+// This allocator dynamically allocates offsets instead of pointers. Memory can be managed completely by the user.
+// Usage Example:
+//      #define OFFSET_ALLOCATOR_IMPLEMENT
+//      #include "OffsetAllocator.h"
+//
+//      #define MAX_TOTAL_ALLOCATION_SIZE 1024*1024*1024        // Allocator can allocate up to maximum 1GB of space
+//      size_t neededSize = OffsetAllocator_GetRequiredBytes(128 * 1024);   // 128k = Maximum number of allocation items
+//      void* buffer = malloc(neededSize);
+//      OffsetAllocator* allocator = OffsetAllocator_Create(MAX_TOTAL_ALLOCATION_SIZE, 128*1024, buffer, neededSize);
+//      
+//      OffsetAllocatorAllocation a;
+//      OffsetAllocator_Allocate(allocator, 4096, &a);
+//      printf("Allocation offset: %u", a.offset);
+//      OffsetAllocator_Free(allocator, &a);        // We are done with the allocation
+//  
+//      OffsetAllocator_Destroy(allocator);
+//      free(buffer);   // We are done with the allocator
+// 
 #pragma once
 
 #ifndef OFFSET_ALLOCATOR_API_DECL
@@ -73,9 +93,6 @@ OFFSET_ALLOCATOR_API_DECL void OffsetAllocator_GetStorageReportFull(OffsetAlloca
 #endif
 
 #ifdef OFFSET_ALLOCATOR_IMPLEMENT
-
-// (C) Sebastian Aaltonen 2023
-// MIT License (see file: LICENSE)
 
 #if defined(DEBUG) || defined(_DEBUG)
     #ifndef OFFSET_ALLOCATOR_ASSERT
@@ -445,7 +462,6 @@ bool OffsetAllocator_Allocate(OffsetAllocator* allocator, uint32_t size, OffsetA
 {
     OFFSET_ALLOCATOR_ASSERT(allocator);
     OFFSET_ALLOCATOR_ASSERT(allocation);
-    OFFSET_ALLOCATOR_ASSERT(size);
 
     static OffsetAllocatorAllocation NoSpaceAlloc = {
         .offset = OFFSET_ALLOCATOR_NO_SPACE, 
