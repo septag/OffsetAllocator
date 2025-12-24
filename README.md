@@ -39,9 +39,6 @@ The allocation metadata is stored in a separate data structure, making this allo
 232->2147483648 233->2415919104 234->2684354560 235->2952790016 236->3221225472 237->3489660928 238->3758096384 239->4026531840
 ```
 
-## Integration
-CMakeLists.txt exists for cmake folder include. Alternatively, just copy the OffsetAllocator.cpp and OffsetAllocator.hpp in your project. No other files are needed.
-
 ## How to use
 
 ```c
